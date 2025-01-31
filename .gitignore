@@ -1,4 +1,6 @@
-config.env
+.env
+venv
+api.log
 
 .DS_Store
 .huskyrc.json
