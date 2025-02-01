@@ -45,8 +45,8 @@ LANGSMITH_TRACING="true"
 LANGCHAIN_TRACING_V2="true"
 LANGSMITH_API_KEY="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"
 LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
-# MODEL_NAME="gpt-4o-latest"
-MODEL_NAME="gpt-4o-mini"
+MODEL_NAME="gpt-4o-latest"
+# MODEL_NAME="gpt-4o-mini"
 TEMPERATURE=0.1
 
 async def clear_logs(log_folder = "./logs/"):
@@ -194,62 +194,11 @@ async def inference(query):
     output = json.loads(response['output'])
     return output
 
-# # Assume this is your actual async inference function
-# async def inference(query: str):
-#     await asyncio.sleep(0.5)  # Simulate processing delay
-#     return {"answer": 42, "reasoning": "Based on model output", "sources": ["https://example.com"]}
-
-# A simpler online_inference using a Future
-async def online_inference(query: str):
-    global logger
-    await logger.debug("Running online_inference")
-
-    loop = asyncio.get_event_loop()
-    fut = loop.create_future()  # Create a Future to hold the result
-
-    async def run_inference():
-        try:
-            result = await inference(query)
-            fut.set_result(result)
-        except Exception as e:
-            fut.set_exception(e)
-
-    # Schedule the inference to run in the background.
-    asyncio.create_task(run_inference())
-    # Wait for the Future to be set (i.e. for inference() to complete)
-    return await fut
-
-# Global queue
+# Global queue for queries
 inference_queue = asyncio.Queue()
-
-# Modified online_inference() using the global queue.
-async def online_inference(query: str):
-    loop = asyncio.get_event_loop()
-    fut = loop.create_future()
-
-    # queued_query, queued_future = await inference_queue.get()
-
-    # Put the task (query and its future) into the global queue.
-    await inference_queue.put((query, fut))
-    
-    # Immediately take the task out of the queue.
-    queued_query, queued_future = await inference_queue.get()
-    
-    try:
-        # Run the actual inference using the query.
-        result = await inference(queued_query)
-        queued_future.set_result(result)
-    except Exception as e:
-        queued_future.set_exception(e)
-    
-    # Mark the queue item as processed.
-    inference_queue.task_done()
-
-    # Await the future (which now contains the result) and return it.
-    return await fut
+rate_limit_s = 1.0
 
 # The consumer continuously processes tasks from the queue.
-rate_limit_s = 1.0
 async def inference_consumer():
     while True:
         # Wait for the next item: a tuple of (query, future).
@@ -261,13 +210,6 @@ async def inference_consumer():
         except Exception as e:
             fut.set_exception(e)
         inference_queue.task_done()
-
-# # The online_inference() function enqueues a query and awaits the result.
-# async def online_inference(query: str):
-#     loop = asyncio.get_event_loop()
-#     fut = loop.create_future()  # Create a Future to hold the result.
-#     await inference_queue.put((query, fut))  # Enqueue the task.
-#     return await fut  # Wait until the consumer sets the result.
 
 # The online_inference function puts the query into the queue and starts the consumer
 async def online_inference(query: str):
