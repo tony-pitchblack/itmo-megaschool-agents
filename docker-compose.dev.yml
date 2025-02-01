@@ -3,15 +3,16 @@ version: "3.8"
 services:
   fastapi-service:
     build: .
-    container_name: fastapi-baseline
+    container_name: fastapi-baseline-dev
     ports:
-      - "8080:8080"
+      - "8081:8081"
     restart: unless-stopped
     environment:
-      - ENV=production
+      - ENV=development
       - TZ=UTC
     volumes:
       - ./logs:/app/logs
+      - .:/app
     # Если нужно GPU
     # runtime: nvidia
     # deploy:
