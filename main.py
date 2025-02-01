@@ -2,6 +2,7 @@ import time
 from typing import List
 from dotenv import load_dotenv
 import os
+import asyncio
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import HttpUrl
@@ -76,10 +77,12 @@ async def clear_logs(log_folder = "./logs/"):
 #     return env_vars
 
 agent_with_chat_history = None
+consumer_task = None
 
 @app.on_event("startup")
 async def startup_event():
     global logger
+    global consumer_task
     global agent_with_chat_history
 
     logger = await setup_logger(LogLevel.DEBUG)
@@ -141,6 +144,9 @@ async def startup_event():
     )
     await logger.debug('Set up agent_with_chat_history')
 
+    # consumer_task = asyncio.create_task(inference_consumer())
+    # await logger.debug("Started consuming inference")
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -188,13 +194,104 @@ async def inference(query):
     output = json.loads(response['output'])
     return output
 
+# # Assume this is your actual async inference function
+# async def inference(query: str):
+#     await asyncio.sleep(0.5)  # Simulate processing delay
+#     return {"answer": 42, "reasoning": "Based on model output", "sources": ["https://example.com"]}
+
+# A simpler online_inference using a Future
+async def online_inference(query: str):
+    global logger
+    await logger.debug("Running online_inference")
+
+    loop = asyncio.get_event_loop()
+    fut = loop.create_future()  # Create a Future to hold the result
+
+    async def run_inference():
+        try:
+            result = await inference(query)
+            fut.set_result(result)
+        except Exception as e:
+            fut.set_exception(e)
+
+    # Schedule the inference to run in the background.
+    asyncio.create_task(run_inference())
+    # Wait for the Future to be set (i.e. for inference() to complete)
+    return await fut
+
+# Global queue
+inference_queue = asyncio.Queue()
+
+# Modified online_inference() using the global queue.
+async def online_inference(query: str):
+    loop = asyncio.get_event_loop()
+    fut = loop.create_future()
+
+    # queued_query, queued_future = await inference_queue.get()
+
+    # Put the task (query and its future) into the global queue.
+    await inference_queue.put((query, fut))
+    
+    # Immediately take the task out of the queue.
+    queued_query, queued_future = await inference_queue.get()
+    
+    try:
+        # Run the actual inference using the query.
+        result = await inference(queued_query)
+        queued_future.set_result(result)
+    except Exception as e:
+        queued_future.set_exception(e)
+    
+    # Mark the queue item as processed.
+    inference_queue.task_done()
+
+    # Await the future (which now contains the result) and return it.
+    return await fut
+
+# The consumer continuously processes tasks from the queue.
+rate_limit_s = 1.0
+async def inference_consumer():
+    while True:
+        # Wait for the next item: a tuple of (query, future).
+        query, fut = await inference_queue.get()
+        await asyncio.sleep(rate_limit_s)
+        try:
+            result = await inference(query)
+            fut.set_result(result)
+        except Exception as e:
+            fut.set_exception(e)
+        inference_queue.task_done()
+
+# # The online_inference() function enqueues a query and awaits the result.
+# async def online_inference(query: str):
+#     loop = asyncio.get_event_loop()
+#     fut = loop.create_future()  # Create a Future to hold the result.
+#     await inference_queue.put((query, fut))  # Enqueue the task.
+#     return await fut  # Wait until the consumer sets the result.
+
+# The online_inference function puts the query into the queue and starts the consumer
+async def online_inference(query: str):
+    loop = asyncio.get_event_loop()
+    fut = loop.create_future()  # Create a Future to hold the result
+
+    # Start the consumer only once if it's not already running
+    global consumer_task
+    if consumer_task is None or consumer_task.done():
+        consumer_task = asyncio.create_task(inference_consumer())
+
+    # Put the query into the queue for the consumer to process
+    await inference_queue.put((query, fut))
+
+    # Wait for the result to be set by the consumer
+    return await fut
+
 @app.post("/api/request", response_model=PredictionResponse)
 async def predict(body: PredictionRequest):
-    logger.info('hello world')
     try:
         await logger.info(f"Processing prediction request with id: {body.id}")
 
-        output = await inference(body.query)
+        # output = await inference(body.query)
+        output = await online_inference(body.query)
 
         # output = {
         #     "answer": 0,
@@ -215,4 +312,4 @@ async def predict(body: PredictionRequest):
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
         await logger.error(f"Internal error processing request {body.id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
