@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 import os
 import asyncio
 
+import json
+import time
+from fastapi import Request, Response
+from fastapi.exceptions import HTTPException
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import HttpUrl
 from schemas.request import PredictionRequest, PredictionResponse
@@ -152,11 +157,23 @@ async def startup_event():
 async def log_requests(request: Request, call_next):
     start_time = time.time()
 
-    body = await request.body()
+    body_bytes = await request.body()
+    try:
+        # Try parsing the request body with strict=False to tolerate control characters.
+        parsed = json.loads(body_bytes.decode("utf-8"), strict=False)
+        fixed_body_str = json.dumps(parsed)
+    except Exception as e:
+        # If parsing fails, fall back to the original decoded body.
+        fixed_body_str = body_bytes.decode("utf-8")
+    
+    # Log the (fixed) request body.
     await logger.info(
         f"Incoming request: {request.method} {request.url}\n"
-        f"Request body: {body.decode()}"
+        f"Request body: {fixed_body_str}"
     )
+
+    # Patch the request with the fixed JSON body.
+    request._body = fixed_body_str.encode("utf-8")
 
     response = await call_next(request)
     process_time = time.time() - start_time
@@ -168,7 +185,7 @@ async def log_requests(request: Request, call_next):
     await logger.info(
         f"Request completed: {request.method} {request.url}\n"
         f"Status: {response.status_code}\n"
-        f"Response body: {response_body.decode()}\n"
+        f"Response body: {response_body.decode('utf-8')}\n"
         f"Duration: {process_time:.3f}s"
     )
 
