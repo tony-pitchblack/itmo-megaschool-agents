@@ -1,5 +1,7 @@
 import time
 from typing import List
+from dotenv import load_dotenv
+import os
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import HttpUrl
