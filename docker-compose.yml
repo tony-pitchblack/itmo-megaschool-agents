@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       - ENV=production
-      - TZ=UTC
+      - TZ=Europe/Moscow
     volumes:
       - ./logs:/app/logs
     # Если нужно GPU

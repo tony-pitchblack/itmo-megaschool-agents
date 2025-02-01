@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       - ENV=development
-      - TZ=UTC
+      - TZ=Europe/Moscow
     volumes:
       - ./logs:/app/logs
       - .:/app
