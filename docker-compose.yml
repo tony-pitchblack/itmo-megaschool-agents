@@ -6,6 +6,7 @@ services:
     container_name: fastapi-baseline
     ports:
       - "8080:8080"
+      - "80:8080"
     restart: unless-stopped
     environment:
       - ENV=production
